@@ -1,0 +1,40 @@
+name: property_rental_app
+description: A cross-platform property rental app built with Flutter & Firebase.
+publish_to: 'none'
+version: 0.1.0
+
+environment:
+  sdk: '>=3.3.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  flutter_riverpod: ^2.5.1
+
+  firebase_core: ^3.1.0
+  firebase_auth: ^5.1.0
+  cloud_firestore: ^5.0.0
+  firebase_storage: ^12.1.0
+  firebase_messaging: ^15.0.0
+
+  google_maps_flutter: ^2.6.1
+  geolocator: ^12.0.0
+
+  image_picker: ^1.1.2
+  cached_network_image: ^3.3.1
+
+  url_launcher: ^6.3.0
+  intl: ^0.19.0
+  connectivity_plus: ^6.0.3
+  shared_preferences: ^2.2.3
+
+  cupertino_icons: ^1.0.8
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^4.0.0
+
+flutter:
+  uses-material-design: true
