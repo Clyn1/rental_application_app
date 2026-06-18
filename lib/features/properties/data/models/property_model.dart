@@ -1,121 +1,138 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
-import '../../../../core/constants/firestore_paths.dart';
-import '../../../../services/firestore_service.dart';
 import '../../domain/entities/property_entity.dart';
-import '../../domain/entities/property_filter.dart';
-import '../models/property_model.dart';
 
-class PropertyRemoteDatasource {
-  final FirestoreService _firestore;
+class PropertyModel extends PropertyEntity {
+  const PropertyModel({
+    required super.id,
+    required super.landlordId,
+    required super.landlordName,
+    super.landlordPhotoUrl,
+    required super.title,
+    required super.description,
+    required super.price,
+    super.currency,
+    required super.location,
+    required super.propertyType,
+    required super.bedrooms,
+    required super.bathrooms,
+    required super.squareFootage,
+    super.amenities,
+    super.images,
+    super.availabilityStatus,
+    super.listingStatus,
+    super.averageRating,
+    super.totalRatings,
+    super.viewsCount,
+    super.favoritesCount,
+    required super.createdAt,
+  });
 
-  PropertyRemoteDatasource(this._firestore);
+  factory PropertyModel.fromFirestore(DocumentSnapshot<Map<String, dynamic>> doc) {
+    final data = doc.data() ?? {};
+    final locationMap = data['location'] as Map<String, dynamic>? ?? {};
 
-  // Builds and streams a Firestore query based on the given filter.
-  //
-  // NOTE ON FIRESTORE LIMITS:
-  // Firestore can't combine arbitrary "where" filters easily, so we apply
-  // what we can directly in the query (listingStatus, availability, price)
-  // and apply the rest (bedrooms, bathrooms, type, rating, text search)
-  // on the results AFTER they come back. This is fine at small-to-medium
-  // scale; a dedicated search service (like Algolia) would be the next
-  // step at large scale.
-  Stream<List<PropertyModel>> watchProperties(PropertyFilter filter) {
-    Query<Map<String, dynamic>> query = _firestore
-        .collection(FirestorePaths.properties)
-        .where('listingStatus', isEqualTo: ListingStatus.approved.name);
-
-    if (filter.availableOnly) {
-      query = query.where('availabilityStatus', isEqualTo: AvailabilityStatus.available.name);
-    }
-    if (filter.minPrice != null) {
-      query = query.where('price', isGreaterThanOrEqualTo: filter.minPrice);
-    }
-    if (filter.maxPrice != null) {
-      query = query.where('price', isLessThanOrEqualTo: filter.maxPrice);
-    }
-
-    query = query.orderBy('createdAt', descending: true).limit(50);
-
-    return query.snapshots().map((snapshot) {
-      var results = snapshot.docs.map(PropertyModel.fromFirestore).toList();
-
-      if (filter.minBedrooms != null) {
-        results = results.where((p) => p.bedrooms >= filter.minBedrooms!).toList();
-      }
-      if (filter.minBathrooms != null) {
-        results = results.where((p) => p.bathrooms >= filter.minBathrooms!).toList();
-      }
-      if (filter.propertyTypes != null && filter.propertyTypes!.isNotEmpty) {
-        results = results.where((p) => filter.propertyTypes!.contains(p.propertyType)).toList();
-      }
-      if (filter.minRating != null) {
-        results = results.where((p) => p.averageRating >= filter.minRating!).toList();
-      }
-      if (filter.searchQuery != null && filter.searchQuery!.trim().isNotEmpty) {
-        final q = filter.searchQuery!.trim().toLowerCase();
-        results = results.where((p) {
-          return p.title.toLowerCase().contains(q) ||
-              p.location.city.toLowerCase().contains(q) ||
-              p.location.address.toLowerCase().contains(q) ||
-              p.landlordName.toLowerCase().contains(q);
-        }).toList();
-      }
-
-      return results;
-    });
+    return PropertyModel(
+      id: doc.id,
+      landlordId: data['landlordId'] as String? ?? '',
+      landlordName: data['landlordName'] as String? ?? '',
+      landlordPhotoUrl: data['landlordPhotoUrl'] as String?,
+      title: data['title'] as String? ?? '',
+      description: data['description'] as String? ?? '',
+      price: (data['price'] as num?)?.toDouble() ?? 0,
+      currency: data['currency'] as String? ?? 'KES',
+      location: PropertyLocation(
+        address: locationMap['address'] as String? ?? '',
+        city: locationMap['city'] as String? ?? '',
+        latitude: (locationMap['latitude'] as num?)?.toDouble() ?? 0,
+        longitude: (locationMap['longitude'] as num?)?.toDouble() ?? 0,
+      ),
+      propertyType: _typeFromString(data['propertyType'] as String?),
+      bedrooms: (data['bedrooms'] as num?)?.toInt() ?? 0,
+      bathrooms: (data['bathrooms'] as num?)?.toInt() ?? 0,
+      squareFootage: (data['squareFootage'] as num?)?.toDouble() ?? 0,
+      amenities: List<String>.from(data['amenities'] as List? ?? []),
+      images: List<String>.from(data['images'] as List? ?? []),
+      availabilityStatus: _availabilityFromString(data['availabilityStatus'] as String?),
+      listingStatus: _listingStatusFromString(data['listingStatus'] as String?),
+      averageRating: (data['averageRating'] as num?)?.toDouble() ?? 0,
+      totalRatings: (data['totalRatings'] as num?)?.toInt() ?? 0,
+      viewsCount: (data['viewsCount'] as num?)?.toInt() ?? 0,
+      favoritesCount: (data['favoritesCount'] as num?)?.toInt() ?? 0,
+      createdAt: (data['createdAt'] as Timestamp?)?.toDate() ?? DateTime.now(),
+    );
   }
 
-  Stream<PropertyModel?> watchProperty(String propertyId) {
-    return _firestore.doc(FirestorePaths.properties, propertyId).snapshots().map(
-          (snapshot) => snapshot.exists ? PropertyModel.fromFirestore(snapshot) : null,
-        );
-  }
-
-  // Landlord's own properties — no listingStatus filter, since a landlord
-  // should see ALL their properties including pending/rejected ones.
-  Stream<List<PropertyModel>> watchLandlordProperties(String landlordId) {
-    return _firestore
-        .collection(FirestorePaths.properties)
-        .where('landlordId', isEqualTo: landlordId)
-        .orderBy('createdAt', descending: true)
-        .snapshots()
-        .map((snapshot) => snapshot.docs.map(PropertyModel.fromFirestore).toList());
-  }
-
-  // Creates a new property doc and returns its generated ID.
-  // We call .doc() first (without saving) so we know the ID BEFORE
-  // uploading images, since images are stored in a folder named after it.
-  Future<String> createProperty(Map<String, dynamic> data) async {
-    final docRef = _firestore.collection(FirestorePaths.properties).doc();
-    await docRef.set(data);
-    return docRef.id;
-  }
-
-  Future<void> updateImages(String propertyId, List<String> imageUrls) async {
-    await _firestore.doc(FirestorePaths.properties, propertyId).update({'images': imageUrls});
-  }
-
-  Future<void> updateProperty(String propertyId, Map<String, dynamic> data) async {
-    await _firestore.doc(FirestorePaths.properties, propertyId).update(data);
-  }
-
-  Future<void> deleteProperty(String propertyId) async {
-    await _firestore.doc(FirestorePaths.properties, propertyId).delete();
-  }
-
-  Future<void> setAvailability(String propertyId, String statusName) async {
-    await _firestore.doc(FirestorePaths.properties, propertyId).update({
-      'availabilityStatus': statusName,
+  Map<String, dynamic> toMap({List<String>? imageUrls}) {
+    return {
+      'landlordId': landlordId,
+      'landlordName': landlordName,
+      'landlordPhotoUrl': landlordPhotoUrl,
+      'title': title,
+      'description': description,
+      'price': price,
+      'currency': currency,
+      'location': {
+        'address': location.address,
+        'city': location.city,
+        'latitude': location.latitude,
+        'longitude': location.longitude,
+      },
+      'propertyType': propertyType.name,
+      'bedrooms': bedrooms,
+      'bathrooms': bathrooms,
+      'squareFootage': squareFootage,
+      'amenities': amenities,
+      'images': imageUrls ?? images,
+      'availabilityStatus': availabilityStatus.name,
+      'listingStatus': listingStatus.name,
+      'averageRating': averageRating,
+      'totalRatings': totalRatings,
+      'viewsCount': viewsCount,
+      'favoritesCount': favoritesCount,
+      'createdAt': FieldValue.serverTimestamp(),
       'updatedAt': FieldValue.serverTimestamp(),
-    });
+    };
   }
 
-  // FieldValue.increment(1) safely adds 1 on Firestore's SERVER, even if
-  // many users view the property at the exact same moment. This avoids a
-  // race condition that a manual "read, add 1, write" approach would have.
-  Future<void> incrementViewCount(String propertyId) async {
-    await _firestore.doc(FirestorePaths.properties, propertyId).update({
-      'viewsCount': FieldValue.increment(1),
-    });
+  Map<String, dynamic> toUpdateMap() {
+    return {
+      'title': title,
+      'description': description,
+      'price': price,
+      'location': {
+        'address': location.address,
+        'city': location.city,
+        'latitude': location.latitude,
+        'longitude': location.longitude,
+      },
+      'propertyType': propertyType.name,
+      'bedrooms': bedrooms,
+      'bathrooms': bathrooms,
+      'squareFootage': squareFootage,
+      'amenities': amenities,
+      'images': images,
+      'updatedAt': FieldValue.serverTimestamp(),
+    };
+  }
+
+  static PropertyType _typeFromString(String? value) {
+    return PropertyType.values.firstWhere(
+      (e) => e.name == value,
+      orElse: () => PropertyType.apartment,
+    );
+  }
+
+  static AvailabilityStatus _availabilityFromString(String? value) {
+    return AvailabilityStatus.values.firstWhere(
+      (e) => e.name == value,
+      orElse: () => AvailabilityStatus.available,
+    );
+  }
+
+  static ListingStatus _listingStatusFromString(String? value) {
+    return ListingStatus.values.firstWhere(
+      (e) => e.name == value,
+      orElse: () => ListingStatus.pending,
+    );
   }
 }

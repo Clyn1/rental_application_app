@@ -1,104 +1,104 @@
-import '../../domain/entities/user_entity.dart';
-import '../../domain/repositories/auth_repository.dart';
-import '../../../../core/errors/failures.dart';
-import '../datasources/auth_remote_datasource.dart';
-import '../models/user_model.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import '../../../../core/constants/firestore_paths.dart';
+import '../../../../services/firestore_service.dart';
+import '../../domain/entities/property_entity.dart';
+import '../../domain/entities/property_filter.dart';
+import '../models/property_model.dart';
 
-// This class is the ANSWER to the contract defined in AuthRepository.
-// It says "yes, I can provide every method that contract promised,
-// using AuthRemoteDatasource underneath."
-class AuthRepositoryImpl implements AuthRepository {
-  final AuthRemoteDatasource _datasource;
+class PropertyRemoteDatasource {
+  final FirestoreService _firestore;
 
-  AuthRepositoryImpl(this._datasource);
+  PropertyRemoteDatasource(this._firestore);
 
-  @override
-  String? get currentUserId => _datasource.currentUserId;
+  Stream<List<PropertyModel>> watchProperties(PropertyFilter filter) {
+    Query<Map<String, dynamic>> query = _firestore
+        .collection(FirestorePaths.properties)
+        .where('listingStatus', isEqualTo: ListingStatus.approved.name);
 
-  @override
-  Stream<UserEntity?> get currentUser {
-    // asyncExpand lets us switch from "stream of auth changes" to
-    // "stream of that specific user's profile data."
-    // Every time the logged-in user changes, we automatically start
-    // listening to THEIR profile instead of the previous user's.
-    return _datasource.authStateChanges.asyncExpand((fbUser) {
-      if (fbUser == null) {
-        return Stream.value(null);
+    if (filter.availableOnly) {
+      query = query.where('availabilityStatus', isEqualTo: AvailabilityStatus.available.name);
+    }
+    if (filter.minPrice != null) {
+      query = query.where('price', isGreaterThanOrEqualTo: filter.minPrice);
+    }
+    if (filter.maxPrice != null) {
+      query = query.where('price', isLessThanOrEqualTo: filter.maxPrice);
+    }
+
+    query = query.orderBy('createdAt', descending: true).limit(50);
+
+    return query.snapshots().map((snapshot) {
+      var results = snapshot.docs.map(PropertyModel.fromFirestore).toList();
+
+      if (filter.minBedrooms != null) {
+        results = results.where((p) => p.bedrooms >= filter.minBedrooms!).toList();
       }
-      return _datasource.userProfileStream(fbUser.uid);
+      if (filter.minBathrooms != null) {
+        results = results.where((p) => p.bathrooms >= filter.minBathrooms!).toList();
+      }
+      if (filter.propertyTypes != null && filter.propertyTypes!.isNotEmpty) {
+        results = results.where((p) => filter.propertyTypes!.contains(p.propertyType)).toList();
+      }
+      if (filter.minRating != null) {
+        results = results.where((p) => p.averageRating >= filter.minRating!).toList();
+      }
+      if (filter.searchQuery != null && filter.searchQuery!.trim().isNotEmpty) {
+        final q = filter.searchQuery!.trim().toLowerCase();
+        results = results.where((p) {
+          return p.title.toLowerCase().contains(q) ||
+              p.location.city.toLowerCase().contains(q) ||
+              p.location.address.toLowerCase().contains(q) ||
+              p.landlordName.toLowerCase().contains(q);
+        }).toList();
+      }
+
+      return results;
     });
   }
 
-  @override
-  Future<UserEntity> login({required String email, required String password}) async {
-    final credential = await _datasource.signInWithEmail(email: email, password: password);
-    final uid = credential.user!.uid;
-
-    final profile = await _datasource.userProfileStream(uid).first;
-
-    if (profile == null) {
-      // Edge case: an Auth account exists but no Firestore profile does.
-      // This is its own Failure type now (see fix below).
-      throw const ServerFailure(
-        'Your account exists but your profile is incomplete. Please contact support.',
-      );
-    }
-
-    return profile;
+  Stream<PropertyModel?> watchProperty(String propertyId) {
+    return _firestore.doc(FirestorePaths.properties, propertyId).snapshots().map(
+          (snapshot) => snapshot.exists ? PropertyModel.fromFirestore(snapshot) : null,
+        );
   }
 
-  @override
-  Future<UserEntity> register({
-    required String fullName,
-    required String email,
-    required String phoneNumber,
-    required String password,
-    required AccountType accountType,
-  }) async {
-    // Step 1: create the Firebase Auth account (handles login credentials)
-    final credential = await _datasource.createAccount(email: email, password: password);
-    final uid = credential.user!.uid;
-
-    // Step 2: create the Firestore profile document (handles app data)
-    final newUser = UserModel(
-      uid: uid,
-      fullName: fullName,
-      email: email,
-      phoneNumber: phoneNumber,
-      accountType: accountType,
-      isEmailVerified: false,
-      createdAt: DateTime.now(),
-    );
-    await _datasource.createUserProfile(newUser);
-
-    // Step 3: send verification email (fire-and-forget)
-    await _datasource.sendEmailVerification();
-
-    return newUser;
+  Stream<List<PropertyModel>> watchLandlordProperties(String landlordId) {
+    return _firestore
+        .collection(FirestorePaths.properties)
+        .where('landlordId', isEqualTo: landlordId)
+        .orderBy('createdAt', descending: true)
+        .snapshots()
+        .map((snapshot) => snapshot.docs.map(PropertyModel.fromFirestore).toList());
   }
 
-  @override
-  Future<void> logout() => _datasource.signOut();
+  Future<String> createProperty(Map<String, dynamic> data) async {
+    final docRef = _firestore.collection(FirestorePaths.properties).doc();
+    await docRef.set(data);
+    return docRef.id;
+  }
 
-  @override
-  Future<void> sendPasswordResetEmail(String email) => _datasource.sendPasswordResetEmail(email);
+  Future<void> updateImages(String propertyId, List<String> imageUrls) async {
+    await _firestore.doc(FirestorePaths.properties, propertyId).update({'images': imageUrls});
+  }
 
-  @override
-  Future<void> sendEmailVerification() => _datasource.sendEmailVerification();
+  Future<void> updateProperty(String propertyId, Map<String, dynamic> data) async {
+    await _firestore.doc(FirestorePaths.properties, propertyId).update(data);
+  }
+
+  Future<void> deleteProperty(String propertyId) async {
+    await _firestore.doc(FirestorePaths.properties, propertyId).delete();
+  }
+
+  Future<void> setAvailability(String propertyId, String statusName) async {
+    await _firestore.doc(FirestorePaths.properties, propertyId).update({
+      'availabilityStatus': statusName,
+      'updatedAt': FieldValue.serverTimestamp(),
+    });
+  }
+
+  Future<void> incrementViewCount(String propertyId) async {
+    await _firestore.doc(FirestorePaths.properties, propertyId).update({
+      'viewsCount': FieldValue.increment(1),
+    });
+  }
 }
-
-// WHAT WAS WRONG BEFORE (explained):
-// In a previous version, this was its own class:
-//   class AuthFailureProfileMissing extends Exception { const AuthFailureProfileMissing(); }
-//
-// In recent Dart versions, `Exception` became an "interface class" — a
-// special kind of class that Dart does NOT allow you to extend directly
-// with `extends`. You can only `implement` it, and even then, plain
-// `Exception` has no usable constructor to inherit from a `const` class.
-//
-// THE FIX: We removed that separate class entirely and instead throw our
-// own `ServerFailure` (defined in core/errors/failures.dart), which
-// extends OUR `Failure` class — not Dart's built-in `Exception`. This is
-// also more consistent: now EVERY error in the app is one of our custom
-// Failure types, and the UI only ever needs to handle that one family of
-// error types instead of two different systems.
