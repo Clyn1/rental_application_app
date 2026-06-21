@@ -1,4 +1,5 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../../../../core/errors/failures.dart';
 import '../../../../services/firestore_service.dart';
 import '../../data/datasources/auth_remote_datasource.dart';
 import '../../data/repositories/auth_repository_impl.dart';
@@ -155,3 +156,8 @@ class AuthActionsNotifier extends AsyncNotifier<void> {
 final authActionsProvider = AsyncNotifierProvider<AuthActionsNotifier, void>(() {
   return AuthActionsNotifier();
 });
+
+String failureMessage(Object error) {
+  if (error is Failure) return error.message;
+  return error.toString();
+}
