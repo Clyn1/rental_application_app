@@ -23,7 +23,7 @@ class PropertyRentalApp extends ConsumerWidget {
       darkTheme: _buildDarkTheme(),
       themeMode: ThemeMode.system,
       routes: {
-        '/register': (context) => const PlaceholderScreen(title: 'Register Screen'),
+        '/register': (context) => const RegisterScreen(),
         '/forgot-password': (context) => const PlaceholderScreen(title: 'Forgot Password Screen'),
         '/notifications': (context) => const PlaceholderScreen(title: 'Notifications Screen'),
         '/property-details': (context) => const PlaceholderScreen(title: 'Property Details Screen'),
