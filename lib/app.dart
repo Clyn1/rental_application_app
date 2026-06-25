@@ -4,11 +4,9 @@ import 'features/auth/presentation/providers/auth_provider.dart';
 import 'features/auth/presentation/screens/login_screen.dart';
 import 'features/auth/presentation/screens/register_screen.dart';
 import 'features/properties/presentation/screens/home_screen.dart';
+import 'features/properties/presentation/screens/add_property_screen.dart';
+import 'features/dashboard/presentation/screens/landlord_dashboard_screen.dart';
 
-// This widget decides what to show based on whether someone is logged in.
-// It watches currentUserProvider — when that changes (login/logout),
-// this widget automatically rebuilds and shows the right screen.
-// No manual navigation code needed for login/logout transitions.
 class PropertyRentalApp extends ConsumerWidget {
   const PropertyRentalApp({super.key});
 
@@ -23,22 +21,29 @@ class PropertyRentalApp extends ConsumerWidget {
       darkTheme: _buildDarkTheme(),
       themeMode: ThemeMode.system,
       routes: {
-        '/register': (context) => const RegisterScreen(),
+        '/register':        (context) => const RegisterScreen(),
         '/forgot-password': (context) => const PlaceholderScreen(title: 'Forgot Password Screen'),
-        '/notifications': (context) => const PlaceholderScreen(title: 'Notifications Screen'),
-        '/property-details': (context) => const PlaceholderScreen(title: 'Property Details Screen'),
+        '/notifications':   (context) => const PlaceholderScreen(title: 'Notifications Screen'),
+        '/property-details':(context) => const PlaceholderScreen(title: 'Property Details Screen'),
+        '/add-property':    (context) => const AddPropertyScreen(),
+        '/my-properties':   (context) => const PlaceholderScreen(title: 'My Properties Screen'),
       },
       home: userAsync.when(
         data: (user) {
           if (user == null) return const LoginScreen();
+          if (user.isSuspended) return const SuspendedAccountScreen();
 
-          if (user.isSuspended) {
-            return const SuspendedAccountScreen();
-          }
-
+          // WHY THIS SWITCH MATTERS:
+          // This is the single point where role-based routing happens.
+          // A tenant sees the property browsing experience.
+          // A landlord sees their management dashboard.
+          // An admin sees the platform management dashboard.
+          // Each role gets a completely tailored experience from
+          // the moment they log in — they never see each other's screens
+          // unless we explicitly build that crossover.
           switch (user.accountType.name) {
             case 'landlord':
-              return const PlaceholderScreen(title: 'Landlord Dashboard');
+              return const LandlordDashboardScreen();
             case 'admin':
               return const PlaceholderScreen(title: 'Admin Dashboard');
             default:
@@ -50,7 +55,10 @@ class PropertyRentalApp extends ConsumerWidget {
           body: Center(
             child: Padding(
               padding: const EdgeInsets.all(24),
-              child: Text('Something went wrong:\n$error', textAlign: TextAlign.center),
+              child: Text(
+                'Something went wrong:\n$error',
+                textAlign: TextAlign.center,
+              ),
             ),
           ),
         ),
@@ -91,7 +99,11 @@ class SplashScreen extends StatelessWidget {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(Icons.home_work_rounded, size: 72, color: Theme.of(context).colorScheme.primary),
+            Icon(
+              Icons.home_work_rounded,
+              size: 72,
+              color: Theme.of(context).colorScheme.primary,
+            ),
             const SizedBox(height: 24),
             const CircularProgressIndicator(),
           ],
@@ -121,7 +133,8 @@ class SuspendedAccountScreen extends ConsumerWidget {
               ),
               const SizedBox(height: 24),
               ElevatedButton(
-                onPressed: () => ref.read(authActionsProvider.notifier).logout(),
+                onPressed: () =>
+                    ref.read(authActionsProvider.notifier).logout(),
                 child: const Text('Log Out'),
               ),
             ],
@@ -140,7 +153,9 @@ class PlaceholderScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: Text(title)),
-      body: Center(child: Text('$title - build this next, following the same pattern!')),
+      body: Center(
+        child: Text('$title - build this next, following the same pattern!'),
+      ),
     );
   }
 }

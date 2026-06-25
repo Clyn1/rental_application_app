@@ -69,7 +69,7 @@ class PropertyCard extends StatelessWidget {
                           isFavorite ? Icons.favorite : Icons.favorite_border,
                           color: isFavorite ? Colors.redAccent : Colors.white,
                           size: 20,
-                        ),
+                        ),  
                       ),
                     ),
                   ),

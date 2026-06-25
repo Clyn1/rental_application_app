@@ -16,33 +16,60 @@ class HomeScreen extends ConsumerWidget {
     return Scaffold(
       appBar: AppBar(
         title: userAsync.when(
-          data: (user) => Text(user != null ? 'Hello, ${user.fullName.split(' ').first} 👋' : 'Welcome'),
+          data: (user) => Text(
+            user != null
+                ? 'Hello, ${user.fullName.split(' ').first} 👋'
+                : 'Welcome',
+          ),
           loading: () => const Text('Welcome'),
           error: (_, __) => const Text('Welcome'),
         ),
         actions: [
           IconButton(
             icon: const Icon(Icons.notifications_outlined),
-            onPressed: () => Navigator.of(context).pushNamed('/notifications'),
+            onPressed: () =>
+                Navigator.of(context).pushNamed('/notifications'),
           ),
         ],
       ),
+
+      // WHY FloatingActionButton HERE:
+      // The FAB is Flutter's standard "primary action" button for a screen.
+      // It floats above everything else so it's always visible and tappable
+      // no matter how far the user has scrolled down the property list.
+      // Tapping it navigates to '/add-property' which is registered in
+      // app.dart's routes map and shows AddPropertyScreen.
+      floatingActionButton: FloatingActionButton.extended(
+        onPressed: () => Navigator.of(context).pushNamed('/add-property'),
+        icon: const Icon(Icons.add),
+        label: const Text('Add Property'),
+      ),
+
       body: RefreshIndicator(
-        onRefresh: () async => ref.invalidate(propertyListProvider(PropertyFilter.empty)),
+        onRefresh: () async =>
+            ref.invalidate(propertyListProvider(PropertyFilter.empty)),
         child: propertiesAsync.when(
           data: (properties) {
             if (properties.isEmpty) {
               return _buildEmptyState(context);
             }
             return ListView.builder(
-              padding: const EdgeInsets.all(16),
+              // WHY BOTTOM PADDING OF 80:
+              // The FAB floats over the bottom of the list. Without
+              // extra bottom padding, the last property card would be
+              // hidden behind the FAB and unreachable by scrolling.
+              // 80px is enough to clear the FAB height comfortably.
+              padding: const EdgeInsets.fromLTRB(16, 16, 16, 80),
               itemCount: properties.length,
               itemBuilder: (context, index) {
                 final property = properties[index];
                 return PropertyCard(
                   property: property,
                   onTap: () {
-                    Navigator.of(context).pushNamed('/property-details', arguments: property.id);
+                    Navigator.of(context).pushNamed(
+                      '/property-details',
+                      arguments: property.id,
+                    );
                   },
                   onFavoriteTap: () {},
                   isFavorite: false,
@@ -70,7 +97,8 @@ class HomeScreen extends ConsumerWidget {
                   ),
                   const SizedBox(height: 16),
                   ElevatedButton(
-                    onPressed: () => ref.invalidate(propertyListProvider(PropertyFilter.empty)),
+                    onPressed: () => ref.invalidate(
+                        propertyListProvider(PropertyFilter.empty)),
                     child: const Text('Try Again'),
                   ),
                 ],
@@ -110,7 +138,10 @@ class HomeScreen extends ConsumerWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          AspectRatio(aspectRatio: 16 / 10, child: Container(color: color)),
+          AspectRatio(
+            aspectRatio: 16 / 10,
+            child: Container(color: color),
+          ),
           Padding(
             padding: const EdgeInsets.all(12),
             child: Column(
