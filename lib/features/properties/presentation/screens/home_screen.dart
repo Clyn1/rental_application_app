@@ -5,13 +5,20 @@ import '../../domain/entities/property_filter.dart';
 import '../providers/property_provider.dart';
 import '../widgets/property_card.dart';
 
+// This is the TENANT home screen.
+// A tenant's job is to BROWSE and FIND properties — nothing else.
+// They do not add, edit, or manage listings.
+// The "Add Property" button that was here before has been removed
+// because it belonged to the Landlord role, not the Tenant role.
 class HomeScreen extends ConsumerWidget {
   const HomeScreen({super.key});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final userAsync = ref.watch(currentUserProvider);
-    final propertiesAsync = ref.watch(propertyListProvider(PropertyFilter.empty));
+    final propertiesAsync = ref.watch(
+      propertyListProvider(PropertyFilter.empty),
+    );
 
     return Scaffold(
       appBar: AppBar(
@@ -25,6 +32,8 @@ class HomeScreen extends ConsumerWidget {
           error: (_, __) => const Text('Welcome'),
         ),
         actions: [
+          // Notifications bell — tenants receive alerts when
+          // their viewing requests are approved/rejected.
           IconButton(
             icon: const Icon(Icons.notifications_outlined),
             onPressed: () =>
@@ -33,33 +42,33 @@ class HomeScreen extends ConsumerWidget {
         ],
       ),
 
-      // WHY FloatingActionButton HERE:
-      // The FAB is Flutter's standard "primary action" button for a screen.
-      // It floats above everything else so it's always visible and tappable
-      // no matter how far the user has scrolled down the property list.
-      // Tapping it navigates to '/add-property' which is registered in
-      // app.dart's routes map and shows AddPropertyScreen.
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: () => Navigator.of(context).pushNamed('/add-property'),
-        icon: const Icon(Icons.add),
-        label: const Text('Add Property'),
-      ),
+      // WHY NO floatingActionButton HERE:
+      // The tenant's primary action is browsing — they tap on
+      // property cards, not adding new listings.
+      // The "Add Property" FAB lives on LandlordDashboardScreen
+      // because only a landlord should ever see or use it.
+      // Mixing landlord controls into the tenant screen would
+      // confuse tenants and break the role separation we designed.
 
       body: RefreshIndicator(
-        onRefresh: () async =>
-            ref.invalidate(propertyListProvider(PropertyFilter.empty)),
+        // Pull down to refresh the property list manually.
+        // Since we use a StreamProvider (real-time), data usually
+        // updates automatically — but this is a useful fallback
+        // if the user suspects data is stale.
+        onRefresh: () async => ref.invalidate(
+          propertyListProvider(PropertyFilter.empty),
+        ),
         child: propertiesAsync.when(
           data: (properties) {
             if (properties.isEmpty) {
               return _buildEmptyState(context);
             }
             return ListView.builder(
-              // WHY BOTTOM PADDING OF 80:
-              // The FAB floats over the bottom of the list. Without
-              // extra bottom padding, the last property card would be
-              // hidden behind the FAB and unreachable by scrolling.
-              // 80px is enough to clear the FAB height comfortably.
-              padding: const EdgeInsets.fromLTRB(16, 16, 16, 80),
+              // WHY BOTTOM PADDING OF 16 (not 80):
+              // We removed the FAB, so there's no floating button
+              // covering the bottom of the list anymore.
+              // Normal padding is enough.
+              padding: const EdgeInsets.all(16),
               itemCount: properties.length,
               itemBuilder: (context, index) {
                 final property = properties[index];
@@ -71,24 +80,36 @@ class HomeScreen extends ConsumerWidget {
                       arguments: property.id,
                     );
                   },
+                  // Favorite toggling — wired up when we build
+                  // the Favorites feature next.
                   onFavoriteTap: () {},
                   isFavorite: false,
                 );
               },
             );
           },
+
+          // While Firestore is loading, show skeleton placeholder
+          // cards so the layout doesn't jump when data arrives.
           loading: () => ListView.builder(
             padding: const EdgeInsets.all(16),
             itemCount: 4,
             itemBuilder: (context, index) => _buildSkeletonCard(context),
           ),
+
+          // If the query fails (e.g. Firestore index missing,
+          // or network error), show a clear error with a retry button.
           error: (error, stackTrace) => Center(
             child: Padding(
               padding: const EdgeInsets.all(24),
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  const Icon(Icons.cloud_off, size: 48, color: Colors.grey),
+                  const Icon(
+                    Icons.cloud_off,
+                    size: 48,
+                    color: Colors.grey,
+                  ),
                   const SizedBox(height: 16),
                   Text(
                     'Could not load properties.\n${error.toString()}',
@@ -98,7 +119,8 @@ class HomeScreen extends ConsumerWidget {
                   const SizedBox(height: 16),
                   ElevatedButton(
                     onPressed: () => ref.invalidate(
-                        propertyListProvider(PropertyFilter.empty)),
+                      propertyListProvider(PropertyFilter.empty),
+                    ),
                     child: const Text('Try Again'),
                   ),
                 ],
@@ -110,6 +132,9 @@ class HomeScreen extends ConsumerWidget {
     );
   }
 
+  // Shown when Firestore returns an empty list — no approved
+  // listings exist yet. Gives tenants a clear message rather
+  // than a confusing blank screen.
   Widget _buildEmptyState(BuildContext context) {
     return Center(
       child: Padding(
@@ -130,11 +155,17 @@ class HomeScreen extends ConsumerWidget {
     );
   }
 
+  // Placeholder cards shown while the property list loads.
+  // They match the shape of a real PropertyCard so the screen
+  // doesn't jump or reflow when real data arrives.
   Widget _buildSkeletonCard(BuildContext context) {
-    final color = Theme.of(context).colorScheme.surfaceContainerHighest;
+    final color =
+        Theme.of(context).colorScheme.surfaceContainerHighest;
     return Card(
       margin: const EdgeInsets.symmetric(vertical: 6, horizontal: 4),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(16),
+      ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
